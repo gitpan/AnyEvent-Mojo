@@ -3,7 +3,10 @@ MANIFEST
 Makefile.PL
 README
 lib/AnyEvent/Mojo.pm
+lib/AnyEvent/Mojo/Connection.pm
 t/00-load.t
+t/05-simple.t
+t/10-keep-alive.t
 t/pod-coverage.t
 t/pod.t
 .gitignore

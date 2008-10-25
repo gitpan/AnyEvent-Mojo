@@ -7,155 +7,113 @@ use base 'Mojo::Server';
 use Carp qw( croak );
 use AnyEvent;
 use AnyEvent::Socket;
+use AnyEvent::Mojo::Connection;
+use IO::Socket qw( SOMAXCONN );
 
-our $VERSION = '0.1';
+our $VERSION = '0.2';
 
+__PACKAGE__->attr('port',         chained => 1, default => 3000);
+__PACKAGE__->attr('host',         chained => 1);
+__PACKAGE__->attr('listen_queue_size',
+    chained => 1,
+    default => sub { SOMAXCONN },
+);
+__PACKAGE__->attr('max_keep_alive_requests',
+  chained => 1,
+  default => 100,
+);
+__PACKAGE__->attr('keep_alive_timeout',
+  chained => 1,
+  default => 5,
+);
+__PACKAGE__->attr('request_count', chained => 1, default => 0);
 
-__PACKAGE__->attr('port',  chained => 1, default => 3000);
-__PACKAGE__->attr('alive', chained => 1);
+__PACKAGE__->attr('run_guard',    chained => 1);
+__PACKAGE__->attr('listen_guard', chained => 1);
+__PACKAGE__->attr('connection_class',
+    chained => 1,
+    default => 'AnyEvent::Mojo::Connection'
+);
 
 
 sub listen {
   my $self = shift;
   
-  tcp_server(undef, $self->port,
+  # Already listening
+  return if $self->listen_guard;
+  
+  my $guard = tcp_server(undef, $self->port,
     # on connection
     sub {
-      my ($fh) = @_;
+      my ($sock, $peer_host, $peer_port) = @_;
       
-      if (!$fh) {
-        print STDERR "Connect failed: $!\n";
+      if (!$sock) {
+        $self->log("Connect failed: $!");
         return;
       }
       
-      my $tx = $self->build_tx_cb->($self);
-      $tx->state('read');
-      # Keep it simple, no keep-alive for now
-      $tx->res->headers->connection('close');
-      
-      # Create out magic handle
-      my $handle; $handle = AnyEvent::Handle->new(
-        fh       => $fh,
-        timeout  =>  15,
-        on_eof     => sub { undef $handle; undef $tx },
-        on_error   => sub { undef $handle; undef $tx },
-        on_timeout => sub { undef $handle; undef $tx },
-      );
-      
-      $handle->push_read(sub { $self->_read($tx, @_) });      
+      my $conn_class = $self->connection_class;
+      $conn_class->new(
+        sock      => $sock,
+        peer_host => $peer_host,
+        peer_port => $peer_port,
+        server    => $self,
+        timeout   => $self->keep_alive_timeout,
+      )->run;
     },
     
-    # Startup phase
+    # Setup listen queue size, record our hostname and port
     sub {
-      my ($fh, $thishost, $thisport) = @_;
+      $self->host($_[1])->port($_[2]);
       
-      print "Server available at http://$thishost:$thisport/\n";
+      return $self->listen_queue_size;
     }
   );
+  
+  $self->listen_guard(sub { $guard = undef });
+  $self->startup_banner;
+  
+  return;
 }
 
 sub run {
   my $self = shift;
   
+  $SIG{PIPE} = 'IGNORE';
+  
+  # Start the server socket
   $self->listen;
   
+  # Create a run guard
   my $cv = AnyEvent->condvar;
-  $self->alive($cv);
-  
+  $self->run_guard(sub { $cv->send });
+
   $cv->recv;
+  
+  return;
 }
 
-
-##############
-# Read request
-
-sub _read {
-  my ($self, $tx, $handle) = @_;
-  my $req = $tx->request;
+sub stop {
+  my ($self) = @_;
   
-  return unless defined $handle->{rbuf};
-  
-  $req->parse(delete $handle->{rbuf});
-
-  my $done = $req->is_state(qw/done error/);
-  if ($done) {
-    $tx->state('write');
-    $self->handler_cb->($self, $tx);
-    
-    $self->_write($tx, $handle);
+  # Clears the listening guard, closes the listening socket
+  if (my $cb = $self->listen_guard) {
+    $cb->();
+    $self->listen_guard(undef);
   }
   
-  return $done;
-};
-
-
-################
-# Write response
-
-sub _write {
-  my ($self, $tx, $handle) = @_;
-
-  $handle->on_drain(sub {
-    $self->_write_more($tx, $handle);
-  });
+  # Clear the run() guard
+  if (my $cb = $self->run_guard) {
+    $cb->();
+    $self->run_guard(undef);
+  }
 }
 
-sub _write_more {
-  my ($self, $tx, $handle) = @_;
-  my $res = $tx->res;
-  my $state = $tx->state;
-  my $chunk;
-
-  # Advance Mojo state machine
-  if ($tx->is_state('write')) {
-    $tx->state('write_start_line');
-    $tx->{_to_write} = $tx->res->start_line_length;
-  }
-
-  # Response start line
-  if ($tx->is_state('write_start_line') && $tx->{_to_write} <= 0) {
-    $tx->state('write_headers');
-    $tx->{_offset} = 0;
-    $tx->{_to_write} = $tx->res->header_length;
-  }
-
-  # Response headers
-  if ($tx->is_state('write_headers') && $tx->{_to_write} <= 0) {
-    $tx->state('write_body');
-    $tx->{_offset} = 0;
-    $tx->{_to_write} = $tx->res->body_length;
-  }
-
-  # Response body
-  if ($tx->is_state('write_body') && $tx->{_to_write} <= 0) {
-    # FIXME: need AnyEvent::Mojo::Request to undo here
-    $handle->on_drain(undef);
-    close($handle->fh);
-    return;
-  }
+sub startup_banner {
+  my $self = shift;
+  my ($host, $port) = ($self->host, $self->port);
   
-  # Write the next chunk
-  my $offset = $tx->{_offset} || 0;
-  my $tw = $tx->{_to_write} || 0;
-  
-  # Body?
-  $chunk = $res->get_body_chunk($offset)
-    if $tx->is_state('write_body');
-  
-  # Headers?
-  $chunk = $res->get_header_chunk($offset)
-    if $tx->is_state('write_headers');
-  
-  # Start line?
-  $chunk = $res->get_start_line_chunk($offset)
-    if $tx->is_state('write_start_line');
-
-  # Advance internal counters, the data is ours responsability now  
-  my $written = length($chunk);
-  $tw = $tx->{_to_write}   -= $written;
-  $offset = $tx->{_offset} += $written;
-  
-  $handle->push_write($chunk);
+  print "Server available at http://$host:$port/\n";
 }
 
 
@@ -185,12 +143,19 @@ Version 0.1
     use AnyEvent::Mojo;
     
     my $server = AnyEvent::Mojo->new;
-    $server->port(3456);
+    $server->port(3456)->listen_queue_size(10);
+    $server->max_keep_alive_requests(100)->keep_alive_timeout(3);
+    
     $server->handler_cb(sub {
       my ($self, $tx) = @_;
       
       # Do whatever you want here
       $you_mojo_app->handler($tx);
+
+      # Cool stats
+      $tx->res->headers(
+        'X-AnyEvent-Mojo-Request-Count' =>  $server->request_count
+      );
       
       return $tx;
     });
@@ -205,7 +170,9 @@ Version 0.1
     
     # Run the loop
     AnyEvent->condvar->recv;
-
+    
+    # Advanced usage: use your own Connection class
+    $server->connection_class('MyConnectionClass');
 
 
 =head1 STATUS
@@ -250,9 +217,52 @@ when the callback returns. Future versions will lift this restriction.
 The constructor. Takes no parameters, returns a server object.
 
 
+=head2 host
+
+Address where the server is listening to client requests.
+
+
 =head2 port
 
-Accessor to the port where the server will listen to. Defaults to 3000.
+Port where the server will listen to. Defaults to 3000.
+
+
+=head2 listen_queue_size
+
+Defines the size of the listening queue. Defaults to C< SOMAXCONN >.
+
+Use
+
+    perl -MSocket -e 'print Socket::SOMAXCONN,"\n"'
+
+to discover the default for your operating system.
+
+
+=head2 max_keep_alive_requests
+
+Number of requests that each connection will allow in keep-alive mode.
+
+Use 0 for unlimited requests. Default is 100 requests.
+
+
+=head2 keep_alive_timeout
+
+Number of seconds (can be fractional) that the server lets open connections
+stay idle.
+
+Default is 5 seconds.
+
+
+=head2 request_count
+
+Returns the number of requests the server has answered since it started.
+
+
+=head2 connection_class
+
+Sets the class name that will be used to process each connection.
+
+Defaults to L< AnyEvent::Mojo::Connection >.
 
 
 =head2 listen
@@ -265,7 +275,22 @@ Returns nothing.
 =head2 run
 
 Starts the listening socket and kickstarts the
-AnyEvent runloop with a condvar.
+L< AnyEvent > runloop.
+
+
+=head2 stop
+
+Closes the listening socket and stops the runloop initiated by a call to
+C< run() >.
+
+
+=head2 startup_banner
+
+Called after the listening socket is started. You can override this method
+on your L< AnyEvent::Mojo > subclasses to setup other components.
+
+The default C< startup_banner > prints the URL where the server
+is listening to requests.
 
 
 
