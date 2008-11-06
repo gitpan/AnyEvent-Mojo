@@ -3,117 +3,30 @@ package AnyEvent::Mojo;
 use strict;
 use warnings;
 use 5.008;
-use base 'Mojo::Server';
-use Carp qw( croak );
-use AnyEvent;
-use AnyEvent::Socket;
-use AnyEvent::Mojo::Connection;
-use IO::Socket qw( SOMAXCONN );
+use AnyEvent::Mojo::Server;
+use base qw( Exporter );
 
-our $VERSION = '0.5';
+@AnyEvent::Mojo::EXPORT = qw( mojo_server );
 
-__PACKAGE__->attr('port',         chained => 1, default => 3000);
-__PACKAGE__->attr('host',         chained => 1);
-__PACKAGE__->attr('listen_queue_size',
-    chained => 1,
-    default => sub { SOMAXCONN },
-);
-__PACKAGE__->attr('max_keep_alive_requests',
-  chained => 1,
-  default => 100,
-);
-__PACKAGE__->attr('keep_alive_timeout',
-  chained => 1,
-  default => 5,
-);
-__PACKAGE__->attr('request_count', chained => 1, default => 0);
-
-__PACKAGE__->attr('run_guard',    chained => 1);
-__PACKAGE__->attr('listen_guard', chained => 1);
-__PACKAGE__->attr('connection_class',
-    chained => 1,
-    default => 'AnyEvent::Mojo::Connection'
-);
+our $VERSION = '0.6';
 
 
-sub listen {
-  my $self = shift;
-  
-  # Already listening
-  return if $self->listen_guard;
-  
-  my $guard = tcp_server(undef, $self->port,
-    # on connection
-    sub {
-      my ($sock, $peer_host, $peer_port) = @_;
-      
-      if (!$sock) {
-        $self->log("Connect failed: $!");
-        return;
-      }
-      
-      my $conn_class = $self->connection_class;
-      $conn_class->new(
-        sock      => $sock,
-        peer_host => $peer_host,
-        peer_port => $peer_port,
-        server    => $self,
-        timeout   => $self->keep_alive_timeout,
-      )->run;
-    },
-    
-    # Setup listen queue size, record our hostname and port
-    sub {
-      $self->host($_[1])->port($_[2]);
-      
-      return $self->listen_queue_size;
-    }
-  );
-  
-  $self->listen_guard(sub { $guard = undef });
-  $self->startup_banner;
-  
-  return;
-}
+#####################
+# Start a Mojo server
 
-sub run {
-  my $self = shift;
+sub mojo_server {
+  my ($host, $port, $cb) = @_;
   
-  $SIG{PIPE} = 'IGNORE';
+  croak('FATAL: the callback is required, ') unless ref($cb) eq 'CODE';
   
-  # Start the server socket
-  $self->listen;
+  my $server = AnyEvent::Mojo::Server->new;
+  $server->host($host) if $host;
+  $server->port($port) if $port;
+  $server->handler_cb($cb);
   
-  # Create a run guard
-  my $cv = AnyEvent->condvar;
-  $self->run_guard(sub { $cv->send });
-
-  $cv->recv;
+  $server->listen;
   
-  return;
-}
-
-sub stop {
-  my ($self) = @_;
-  
-  # Clears the listening guard, closes the listening socket
-  if (my $cb = $self->listen_guard) {
-    $cb->();
-    $self->listen_guard(undef);
-  }
-  
-  # Clear the run() guard
-  if (my $cb = $self->run_guard) {
-    $cb->();
-    $self->run_guard(undef);
-  }
-}
-
-sub startup_banner {
-  my $self = shift;
-  my ($host, $port) = ($self->host, $self->port);
-  
-  print "Server available at http://$host:$port/\n";
+  return $server;
 }
 
 
@@ -125,13 +38,13 @@ __END__
 
 =head1 NAME
 
-AnyEvent::Mojo - Run Mojo apps using AnyEvent framework
+AnyEvent::Mojo - Start async Mojo servers easly
 
 
 
 =head1 VERSION
 
-Version 0.1
+Version 0.6
 
 
 
@@ -142,45 +55,25 @@ Version 0.1
     use AnyEvent;
     use AnyEvent::Mojo;
     
-    my $server = AnyEvent::Mojo->new;
-    $server->port(3456)->listen_queue_size(10);
-    $server->max_keep_alive_requests(100)->keep_alive_timeout(3);
+    my $port = 7865;
     
-    $server->handler_cb(sub {
+    my $server = mojo_server undef, $port, sub {
       my ($self, $tx) = @_;
       
-      # Do whatever you want here
-      $you_mojo_app->handler($tx);
-
-      # Cool stats
-      $tx->res->headers(
-        'X-AnyEvent-Mojo-Request-Count' =>  $server->request_count
-      );
-      
-      return $tx;
-    });
-    
-    # Start it up and keep it running
+      # Handle the request here, see AnyEvent::Mojo::Server for details
+    };
+        
+    # Run the loop
     $server->run
     
-    # integrate with other AnyEvent stuff
-    $server->listen
-    
-    # other AnyEvent stuff here
-    
-    # Run the loop
+    # ... or ...
     AnyEvent->condvar->recv;
-    
-    # Advanced usage: use your own Connection class
-    $server->connection_class('MyConnectionClass');
 
 
 =head1 STATUS
 
-This is a first B<alpha> release. The interface B<will> change, and there is
-still missing funcionality, like keep alive support.
-
-Basic HTTP/1.1 single request per connection works.
+This is a first B<beta> release. The interface B<should not> change
+in a backwards incompatible way until version 1.0.
 
 
 
@@ -190,107 +83,37 @@ This module allows you to integrate Mojo applications with the AnyEvent
 framework. For example, you can run a web interface for a long-lived
 AnyEvent daemon.
 
-The AnyEvent::Mojo extends the Mojo::Server class.
 
-To use you need to create a AnyEvent::Mojo object. You can set the port
-with the C< port() > method.
+=head1 FUNCTIONS
 
-Then set the request callback with the Mojo::Server method, 
-C<handler_cb()>.
+The module exports the following functions:
 
-This callback will be called on every request. The first parameter is
-the AnyEvent::Mojo server object itself, and the second parameter is a
-Mojo::Transaction.
+=head2 mojo_server
 
-The code should build the response and return.
+Starts a server. Accepts three parameters:
 
-For now, the callback is synchronous, so the response must be completed
-when the callback returns. Future versions will lift this restriction.
+=over 4
 
+=item host
+
+The hostname or IP address to which the server will bind to. Use C<undef> to
+bind to all interfaces.
 
 
-=head1 METHODS
+=item port
+
+Port where the server will listen on. You can use C<undef> to choose the
+default value of 3000.
 
 
-=head2 new
+=item cb
 
-The constructor. Takes no parameters, returns a server object.
+A coderef. This handler will be called for each request. The first parameter
+is the server object, and the second is a C<Mojo::Transaction>.
 
+=back
 
-=head2 host
-
-Address where the server is listening to client requests.
-
-
-=head2 port
-
-Port where the server will listen to. Defaults to 3000.
-
-
-=head2 listen_queue_size
-
-Defines the size of the listening queue. Defaults to C< SOMAXCONN >.
-
-Use
-
-    perl -MSocket -e 'print Socket::SOMAXCONN,"\n"'
-
-to discover the default for your operating system.
-
-
-=head2 max_keep_alive_requests
-
-Number of requests that each connection will allow in keep-alive mode.
-
-Use 0 for unlimited requests. Default is 100 requests.
-
-
-=head2 keep_alive_timeout
-
-Number of seconds (can be fractional) that the server lets open connections
-stay idle.
-
-Default is 5 seconds.
-
-
-=head2 request_count
-
-Returns the number of requests the server has answered since it started.
-
-
-=head2 connection_class
-
-Sets the class name that will be used to process each connection.
-
-Defaults to L< AnyEvent::Mojo::Connection >.
-
-
-=head2 listen
-
-Starts the listening socket.
-
-Returns nothing.
-
-
-=head2 run
-
-Starts the listening socket and kickstarts the
-L< AnyEvent > runloop.
-
-
-=head2 stop
-
-Closes the listening socket and stops the runloop initiated by a call to
-C< run() >.
-
-
-=head2 startup_banner
-
-Called after the listening socket is started. You can override this method
-on your L< AnyEvent::Mojo > subclasses to setup other components.
-
-The default C< startup_banner > prints the URL where the server
-is listening to requests.
+Returns a C<AnyEvent::Mojo::Server> object.
 
 
 
