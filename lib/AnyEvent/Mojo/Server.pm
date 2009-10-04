@@ -1,39 +1,28 @@
 package AnyEvent::Mojo::Server;
+our $VERSION = '0.8';
+
 
 use strict;
 use warnings;
 use 5.008;
-use base 'Mojo::Server';
+use parent 'Mojo::Server';
 use Carp qw( croak );
 use AnyEvent;
 use AnyEvent::Socket;
+use AnyEvent::Handle;
 use AnyEvent::Mojo::Server::Connection;
 use IO::Socket qw( SOMAXCONN );
 
-our $VERSION = '0.1';
+__PACKAGE__->attr('host');
+__PACKAGE__->attr(port => 3000);
 
-__PACKAGE__->attr('port',         chained => 1, default => 3000);
-__PACKAGE__->attr('host',         chained => 1);
-__PACKAGE__->attr('listen_queue_size',
-    chained => 1,
-    default => sub { SOMAXCONN },
-);
-__PACKAGE__->attr('max_keep_alive_requests',
-  chained => 1,
-  default => 100,
-);
-__PACKAGE__->attr('keep_alive_timeout',
-  chained => 1,
-  default => 5,
-);
-__PACKAGE__->attr('request_count', chained => 1, default => 0);
+__PACKAGE__->attr(listen_queue_size => sub { SOMAXCONN });
+__PACKAGE__->attr(max_keep_alive_requests => 100);
+__PACKAGE__->attr(keep_alive_timeout => 5);
+__PACKAGE__->attr(request_count => 0);
 
-__PACKAGE__->attr('run_guard',    chained => 1);
-__PACKAGE__->attr('listen_guard', chained => 1);
-__PACKAGE__->attr('connection_class',
-    chained => 1,
-    default => 'AnyEvent::Mojo::Server::Connection'
-);
+__PACKAGE__->attr([qw( run_guard listen_guard)]);
+__PACKAGE__->attr(connection_class => 'AnyEvent::Mojo::Server::Connection');
 
 
 sub listen {
@@ -42,29 +31,12 @@ sub listen {
   # Already listening
   return if $self->listen_guard;
   
-  my $guard = tcp_server(undef, $self->port,
-    # on connection
-    sub {
-      my ($sock, $peer_host, $peer_port) = @_;
-      
-      if (!$sock) {
-        $self->log("Connect failed: $!");
-        return;
-      }
-      
-      my $conn_class = $self->connection_class;
-      $conn_class->new(
-        sock      => $sock,
-        peer_host => $peer_host,
-        peer_port => $peer_port,
-        server    => $self,
-        timeout   => $self->keep_alive_timeout,
-      )->run;
-    },
-    
+  my $guard = tcp_server($self->host, $self->port,
+    sub { $self->_on_connect(@_) },
     # Setup listen queue size, record our hostname and port
     sub {
-      $self->host($_[1])->port($_[2]);
+      $self->host($_[1]);
+      $self->port($_[2]);
       
       return $self->listen_queue_size;
     }
@@ -72,6 +44,56 @@ sub listen {
   
   $self->listen_guard(sub { $guard = undef });
   $self->startup_banner;
+  
+  return;
+}
+
+sub _on_connect {
+  my ($self, $sock, $remote_address, $remote_port) = @_;
+  
+  if (!$sock) {
+    $self->log("Connect failed: $!");
+    return;
+  }
+  
+  my $con = $self->connection_class->new(
+    local_address  => $self->host,
+    local_port     => $self->port,
+    remote_address => $remote_address,
+    remote_port    => $remote_port,
+    server         => $self,
+  );
+  
+  my $hdl; $hdl = AnyEvent::Handle->new(
+    fh         => $sock,
+    timeout    => $self->keep_alive_timeout,
+
+    on_read    => sub { $con->_on_read(delete $_[0]->{rbuf}) },
+    on_eof     => sub { $con->_on_eof(@_);   $hdl->destroy },
+    on_error   => sub { $con->_on_error(@_); $hdl->destroy },
+    on_timeout => sub { $con->_on_timeout(@_) },
+  );
+  
+  $con->write_mode_cb(sub {
+    my $on = shift;
+    
+    if ($on) {
+      # print STDERR "## [handle] SET ON DRAIN\n";
+      $hdl->on_drain(sub {
+        my $h = $_[0];
+        $con->_on_write(sub {
+          # print STDERR "## [handle] PUSH WRITE\n";
+          $h->push_write($_[0]);
+          return length($_[0]);
+        });
+      });
+    }
+    else {
+      # print STDERR "## [handle] Remove on_drain\n";
+      $hdl->on_drain(undef);
+    }
+  });
+  $con->close_sock_cb(sub { $hdl = undef });
   
   return;
 }
@@ -109,11 +131,13 @@ sub stop {
   }
 }
 
-sub startup_banner {
-  my $self = shift;
-  my ($host, $port) = ($self->host, $self->port);
-  
-  print "Server available at http://$host:$port/\n";
+sub startup_banner {}
+
+#######
+# Stats
+
+sub _inc_request_count {
+  return ++$_[0]->{request_count}
 }
 
 
@@ -131,9 +155,7 @@ AnyEvent::Mojo::Server - Run Mojo apps using AnyEvent framework
 
 =head1 VERSION
 
-Version 0.1
-
-
+version 0.8
 
 =head1 SYNOPSIS
 
@@ -220,6 +242,27 @@ meantime, you can keep answering other requests.
 
 Creates a new L<AnyEvent::Server::Mojo> instance.
 
+Accepts an hash/hashref with options. All the following methods can be used
+as options. Check the method documentation below for valid values and an
+explanation about each one.
+
+=over 4
+
+=item host
+
+=item port
+
+=item listen_queue_size
+
+=item max_keep_alive_requests
+
+=item keep_alive_timeout
+
+=item connection_class
+
+=back
+
+
 Returns a L<AnyEvent::Server::Mojo> object.
 
 
@@ -296,8 +339,7 @@ C< run() >.
 Called after the listening socket is started. You can override this method
 on your L< AnyEvent::Mojo::Server > subclasses to setup other components.
 
-The default C< startup_banner > prints the URL where the server
-is listening to requests.
+The default C< startup_banner > is empty.
 
 
 
@@ -309,7 +351,7 @@ Pedro Melo, C<< <melo at cpan.org> >>
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2008 Pedro Melo.
+Copyright 2008-2009 Pedro Melo.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
