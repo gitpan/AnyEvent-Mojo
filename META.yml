@@ -22,4 +22,4 @@ requires:
   parent: 0
 resources:
   repository: http://github.com/melo/anyevent--mojo/
-version: 0.8
+version: 0.8001

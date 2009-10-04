@@ -1,5 +1,5 @@
 package MyTestServer;
-our $VERSION = '0.8';
+our $VERSION = '0.8001';
 
 
 use strict;

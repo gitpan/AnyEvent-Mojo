@@ -1,5 +1,5 @@
 package AnyEvent::Mojo::Server;
-our $VERSION = '0.8';
+our $VERSION = '0.8001';
 
 
 use strict;
@@ -155,7 +155,7 @@ AnyEvent::Mojo::Server - Run Mojo apps using AnyEvent framework
 
 =head1 VERSION
 
-version 0.8
+version 0.8001
 
 =head1 SYNOPSIS
 

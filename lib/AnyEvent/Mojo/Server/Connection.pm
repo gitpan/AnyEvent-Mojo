@@ -1,5 +1,5 @@
 package AnyEvent::Mojo::Server::Connection;
-our $VERSION = '0.8';
+our $VERSION = '0.8001';
 
 
 use strict;
@@ -230,7 +230,7 @@ AnyEvent::Mojo::Server::Connection - An active TCP connection to AnyEvent::Mojo:
 
 =head1 VERSION
 
-version 0.8
+version 0.8001
 
 =head1 SYNOPSIS
 
