@@ -27,11 +27,12 @@ is($server->port, $port);
 is(ref($server->handler_cb), 'CODE');
 
 my $t; $t = AnyEvent->timer( after => .5, cb => sub {
-  http_get( "http://127.0.0.1:$port/", sub {
+  my $url = "http://127.0.0.1:$port/";
+  http_get( $url, sub {
     my ($content) = @_;
     
-    ok($content, 'got content back');
-    like($content, qr/Lamb chops for dinner/, '... and it is the right content');
+    ok($content, "got content back from $url");
+    like($content, qr/Lamb chops for dinner/, '... and it is the right content for $url');
     
     $server->stop;
   });

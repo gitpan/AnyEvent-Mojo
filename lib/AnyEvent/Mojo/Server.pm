@@ -1,5 +1,6 @@
 package AnyEvent::Mojo::Server;
-our $VERSION = '0.8001';
+our $VERSION = '0.8002';
+
 
 
 use strict;
@@ -69,8 +70,8 @@ sub _on_connect {
     timeout    => $self->keep_alive_timeout,
 
     on_read    => sub { $con->_on_read(delete $_[0]->{rbuf}) },
-    on_eof     => sub { $con->_on_eof(@_);   $hdl->destroy },
-    on_error   => sub { $con->_on_error(@_); $hdl->destroy },
+    on_eof     => sub { $con->_on_eof(@_);   $hdl->destroy if $hdl },
+    on_error   => sub { $con->_on_error(@_); $hdl->destroy if $hdl },
     on_timeout => sub { $con->_on_timeout(@_) },
   );
   
@@ -155,7 +156,7 @@ AnyEvent::Mojo::Server - Run Mojo apps using AnyEvent framework
 
 =head1 VERSION
 
-version 0.8001
+version 0.8002
 
 =head1 SYNOPSIS
 

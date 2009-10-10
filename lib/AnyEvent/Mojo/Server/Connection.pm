@@ -1,5 +1,6 @@
 package AnyEvent::Mojo::Server::Connection;
-our $VERSION = '0.8001';
+our $VERSION = '0.8002';
+
 
 
 use strict;
@@ -7,8 +8,6 @@ use warnings;
 use parent 'Mojo::Base';
 use Mojo::Transaction::Pipeline;
 use Carp;
-
-use Data::Dump qw(pp);
 
 __PACKAGE__->attr([qw( server pipeline write_mode_cb close_sock_cb )]);
 __PACKAGE__->attr([qw( remote_address remote_port local_address local_port )]);
@@ -230,7 +229,7 @@ AnyEvent::Mojo::Server::Connection - An active TCP connection to AnyEvent::Mojo:
 
 =head1 VERSION
 
-version 0.8001
+version 0.8002
 
 =head1 SYNOPSIS
 

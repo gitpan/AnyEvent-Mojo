@@ -1,5 +1,6 @@
 package AnyEvent::Mojo;
-our $VERSION = '0.8001';
+our $VERSION = '0.8002';
+
 
 
 use strict;
@@ -48,7 +49,7 @@ AnyEvent::Mojo - Start async Mojo servers easly
 
 =head1 VERSION
 
-version 0.8001
+version 0.8002
 
 =head1 SYNOPSIS
 

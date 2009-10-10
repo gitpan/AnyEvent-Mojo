@@ -2,7 +2,7 @@
 abstract: 'Start async Mojo servers easly'
 author:
   - 'Pedro Melo <melo@cpan.org>'
-generated_by: 'Dist::Zilla::Plugin::MetaYAML version 1.092450'
+generated_by: 'Dist::Zilla version 1.092800'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -16,10 +16,11 @@ requires:
   Carp: 0
   IO::Socket: 0
   Mojo: 0.991251
+  Pod::Man: 2.22
   Test::Deep: 0
   Test::Exception: 0
   Test::More: 0.92
   parent: 0
 resources:
   repository: http://github.com/melo/anyevent--mojo/
-version: 0.8001
+version: 0.8002
