@@ -6,9 +6,9 @@ use Test::More;
 use AnyEvent;
 use AnyEvent::Mojo;
 
-eval { require AnyEvent::HTTP; AnyEvent::HTTP->import };
-plan skip_all => "Functional tests require the AnyEvent::HTTP module: $@"
-  if $@;
+use lib 't/tlib';
+use MyTestServer;
+
 
 my $port = 4000 + $$ % 10000;
 my $server; $server = mojo_server(undef, $port, sub {
@@ -26,13 +26,13 @@ is($server->host, '0.0.0.0');
 is($server->port, $port);
 is(ref($server->handler_cb), 'CODE');
 
-my $t; $t = AnyEvent->timer( after => .5, cb => sub {
+my $t; $t = AnyEvent->timer( after => 1, cb => sub {
   my $url = "http://127.0.0.1:$port/";
-  http_get( $url, sub {
+  AnyEvent::HTTP::http_get( $url, sub {
     my ($content) = @_;
     
-    ok($content, "got content back from $url");
-    like($content, qr/Lamb chops for dinner/, '... and it is the right content for $url');
+    ok($content, "got content back from ($url)");
+    like($content, qr/Lamb chops for dinner/, "... and it is the right content ($url)");
     
     $server->stop;
   });

@@ -5,13 +5,11 @@ use warnings;
 use Test::More;
 use Test::Exception;
 use Test::Deep;
-use AnyEvent::HTTP;
 use IO::Socket qw( SOMAXCONN );
-use lib 't/tlib';
 
-BEGIN {
-	use_ok( 'MyTestServer' );
-}
+use lib 't/tlib';
+use MyTestServer;
+
 
 my $server = MyTestServer->new;
 isa_ok($server, 'Mojo::Server');
@@ -27,15 +25,16 @@ lives_ok sub { $server->listen }, 'Server started ok';
 cmp_deeply($server->banner_called, [ '0.0.0.0', $new_port ]);
 
 # GET the server
-my $timer; $timer = AnyEvent->timer( after => .5, cb => sub {
-  http_get("http://127.0.0.1:$new_port/", sub {
+my $timer; $timer = AnyEvent->timer( after => 1, cb => sub {
+  my $url = "http://127.0.0.1:$new_port/";
+  AnyEvent::HTTP::http_get($url, sub {
     my ($content) = @_;
     
-    ok($content, 'Got some content back');
+    ok($content, "Got some content back ($url)");
     like(
       $content,
       qr/Congratulations, your Mojo is working!/,
-      'Content matches expected result'
+      "Content matches expected result ($url)"
     );
     
     lives_ok sub { $server->stop };

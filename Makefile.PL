@@ -9,7 +9,7 @@ WriteMakefile(
   NAME      => 'AnyEvent::Mojo',
   AUTHOR    => "Pedro\ Melo\ \<melo\@cpan\.org\>",
   ABSTRACT  => "Start\ async\ Mojo\ servers\ easly",
-  VERSION   => '0.8002',
+  VERSION   => '0.8003',
   EXE_FILES => [ qw() ],
   (eval { ExtUtils::MakeMaker->VERSION(6.31) } ? (LICENSE => 'perl') : ()),
   PREREQ_PM    => {

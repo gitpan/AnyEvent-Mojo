@@ -1,5 +1,5 @@
 package MyTestServer;
-our $VERSION = '0.8002';
+our $VERSION = '0.8003';
 
 
 
@@ -9,6 +9,12 @@ use AnyEvent;
 use base 'AnyEvent::Mojo::Server';
 use AnyEvent::HTTP;
 use Test::More;
+
+{
+  ## Thou shall not use a proxy for localhost
+  no warnings;
+  undef $AnyEvent::HTTP::PROXY;
+}
 
 BEGIN {
   __PACKAGE__->attr('banner_called');

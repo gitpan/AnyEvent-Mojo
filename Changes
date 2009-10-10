@@ -1,5 +1,9 @@
 Revision history for AnyEvent-Mojo
 
+0.8003 Sat Oct 10 17:05:18 UTC 2009
+         - Disable the HTTP proxy some CPAN testers use: connections are for 127.0.0.1!
+         - Improve test log messages
+
 0.8002 Sat Oct 10 12:15:29 UTC 2009
          - Improve test messages to figure out CPAN Testers failures
          - Remove extra debug from ::Connection

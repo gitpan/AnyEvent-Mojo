@@ -5,11 +5,10 @@ use warnings;
 use Test::More;
 use Test::Exception;
 use Test::Deep;
-use lib 't/tlib';
 
-eval { require MyTestServer; };
-plan skip_all => "Pause/Resume tests require the AnyEvent::HTTP module: $@"
-  if $@;
+use lib 't/tlib';
+use MyTestServer;
+
 
 my ($pid, $port) = MyTestServer->start_server(undef, keep_alive_timeout => 1, sub {
   my ($srv, $tx) = @_;
